@@ -4,43 +4,58 @@ using Orchard.Environment.Extensions;
 using River.DynamicForms.Elements;
 using System.Collections.Generic;
 using System.IO;
+using Orchard.Layouts.Helpers;
+using Orchard.MediaLibrary.Services;
+using Orchard.Tokens;
+using Orchard.ContentManagement;
+using System;
+using Orchard.MediaLibrary.Models;
+using System.Web;
+using Orchard.FileSystems.Media;
 
 namespace River.DynamicForms.Handlers
 {
     [OrchardFeature("River.DynamicForms.Elements.FileField")]
     public class FormFileSubmissionCoordinator : FormEventHandlerBase
     {
+        private readonly IMediaLibraryService _mediaLibraryService;
+        private readonly IStorageProvider _storageProvider;
+        private readonly ITokenizer _tokenizer;
+        private readonly IContentManager _contentManager;
+
+        public FormFileSubmissionCoordinator(
+            IMediaLibraryService mediaLibraryService,
+            IStorageProvider storageProvider,
+            ITokenizer tokenizer,
+            IContentManager contentManager)
+        {
+            _mediaLibraryService = mediaLibraryService;
+            _storageProvider = storageProvider;
+            _tokenizer = tokenizer;
+            _contentManager = contentManager;
+        }
+
         public override void Submitted(FormSubmittedEventContext context)
         {
-            foreach (var element in context.Form.Elements)
+            foreach (var element in context.Form.Elements.Flatten())
             {
                 var fileFieldElement = element as FileField;
-
-                if (fileFieldElement==null)
+                if (fileFieldElement == null)
                     continue;
 
                 var postedFileValue = context.ValueProvider.GetValue(fileFieldElement.Name);
-
                 if (postedFileValue == null)
-                    return;
+                    continue;
 
-                var postedFile = ((System.Web.HttpPostedFileBase[])(postedFileValue.RawValue))[0];
+                var postedFiles = (HttpPostedFileBase[])postedFileValue.RawValue;
+                if (postedFiles == null && postedFiles.Length != 1)
+                    continue;
 
-                var path = Path.Combine(fileFieldElement.FilePath, Path.GetFileName(postedFile.FileName));
+                var folderPath = _tokenizer.Replace(fileFieldElement.FilePath, new { });
+                var uniqFileName = _mediaLibraryService.GetUniqueFilename(folderPath, postedFiles[0].FileName);
+                var path = _storageProvider.Combine(fileFieldElement.FilePath, uniqFileName);
 
-                if (fileFieldElement.GenerateUnique)
-                {
-                    int count = 1;
-                    var pathPattern = Path.Combine(fileFieldElement.FilePath, string.Format("{0}_{{0}}{1}", Path.GetFileNameWithoutExtension(postedFile.FileName), Path.GetExtension(postedFile.FileName)));
-                    while (File.Exists(string.Format(pathPattern, count)))
-                    {
-                        count++;
-                    }
-
-                    path = string.Format(pathPattern, count);
-                }
-
-                context.Values[fileFieldElement.Name + ":size"] = postedFile.ContentLength.ToString();
+                context.Values[fileFieldElement.Name + ":size"] = postedFiles[0].ContentLength.ToString();
                 context.Values[fileFieldElement.Name] = path;
                 fileFieldElement.PostedValue = path;
             }
@@ -51,49 +66,86 @@ namespace River.DynamicForms.Handlers
             if (!context.ModelState.IsValid)
             {
                 //Clean up on validation fail
-                foreach (var element in context.Form.Elements)
+                foreach (var element in context.Form.Elements.Flatten())
                 {
                     if (element is FileField)
                     {
-                        var fileFieldElement = (FileField)element;
+                        var fileFieldElement = element as FileField;
+                        if (fileFieldElement == null)
+                            continue;
 
-                        var path = context.Values[fileFieldElement.Name];
+                        var postedFileValue = context.ValueProvider.GetValue(fileFieldElement.Name);
+                        if (postedFileValue == null)
+                            continue;
 
-                        if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
-                            File.Delete(path);
+                        var postedFiles = (HttpPostedFileBase[])postedFileValue.RawValue;
+                        if (postedFiles == null && postedFiles.Length != 1)
+                            continue;
+
+                        var filePath = context.Values[fileFieldElement.Name];
+                        if (string.IsNullOrWhiteSpace(filePath))
+                            continue;
+
+                        _mediaLibraryService.DeleteFile(
+                            Path.GetDirectoryName(filePath),
+                            Path.GetFileName(filePath));
                     }
                 }
+            }
+            else
+            {
+                foreach (var element in context.Form.Elements.Flatten())
+                {
+                    var fileFieldElement = element as FileField;
+                    if (fileFieldElement == null)
+                        continue;
+
+                    var postedFileValue = context.ValueProvider.GetValue(fileFieldElement.Name);
+                    if (postedFileValue == null)
+                        continue;
+
+                    var postedFiles = (HttpPostedFileBase[])postedFileValue.RawValue;
+                    if (postedFiles == null && postedFiles.Length != 1)
+                        continue;
+
+                    var filePath = context.Values[fileFieldElement.Name];
+                    if (string.IsNullOrWhiteSpace(filePath))
+                        continue;
+
+                    var mediaPart = _mediaLibraryService.ImportMedia(
+                        Path.GetDirectoryName(filePath),
+                        Path.GetFileName(filePath));
+                    _contentManager.Create(mediaPart);
+                } 
             }
         }
 
         public override void Validating(FormValidatingEventContext context)
         {
-            foreach (var element in context.Form.Elements)
+            foreach (var element in context.Form.Elements.Flatten())
             {
                 var fileFieldElement = element as FileField;
-
                 if (fileFieldElement == null)
+                    continue;
+
+                var postedFileValue = context.ValueProvider.GetValue(fileFieldElement.Name);
+                if (postedFileValue == null)
+                    continue;
+
+                var postedFiles = (HttpPostedFileBase[])postedFileValue.RawValue;
+                if (postedFiles == null && postedFiles.Length != 1)
+                    continue;
+
+                var filePath = context.Values[fileFieldElement.Name];
+                if (string.IsNullOrWhiteSpace(filePath))
                     continue;
 
                 try
                 {
-                    var path = context.Values[fileFieldElement.Name];
-
-                    if (string.IsNullOrWhiteSpace(path))
-                        return;
-
-                    var postedFileValue = context.ValueProvider.GetValue(fileFieldElement.Name);
-
-                    if (postedFileValue == null)
-                        return;
-
-                    var postedFile = ((System.Web.HttpPostedFileBase[])(postedFileValue.RawValue))[0];
-
-                    using (var fileStream = File.Create(path))
-                    {
-                        postedFile.InputStream.Seek(0, SeekOrigin.Begin);
-                        postedFile.InputStream.CopyTo(fileStream);
-                    }
+                    _mediaLibraryService.UploadMediaFile(
+                        Path.GetDirectoryName(filePath),
+                        Path.GetFileName(filePath),
+                        postedFiles[0].InputStream);
                 }
                 catch
                 {

@@ -6,13 +6,14 @@ using Orchard.Layouts.Framework.Drivers;
 using Orchard.Layouts.Helpers;
 using Orchard.Tokens;
 using DescribeContext = Orchard.Forms.Services.DescribeContext;
+using Orchard.Layouts.Services;
 
 namespace River.DynamicForms.Drivers
 {
     public class TextAreaElementDriver : FormsElementDriver<TextArea>
     {
         private readonly ITokenizer _tokenizer;
-        public TextAreaElementDriver(IFormManager formManager, ITokenizer tokenizer) : base(formManager)
+        public TextAreaElementDriver(IFormsBasedElementServices formsBasedElementServices, ITokenizer tokenizer) : base(formsBasedElementServices)
         {
             _tokenizer = tokenizer;
         }
@@ -40,7 +41,7 @@ namespace River.DynamicForms.Drivers
             });
         }
 
-        protected override void OnDisplaying(TextArea element, ElementDisplayContext context)
+        protected override void OnDisplaying(TextArea element, ElementDisplayingContext context)
         {
             context.ElementShape.ProcessedName = _tokenizer.Replace(element.Name, context.GetTokenData());
             context.ElementShape.ProcessedLabel = _tokenizer.Replace(element.Label, context.GetTokenData());

@@ -3,6 +3,7 @@ using Orchard.Forms.Services;
 using Orchard.Layouts.Framework.Display;
 using Orchard.Layouts.Framework.Drivers;
 using Orchard.Layouts.Helpers;
+using Orchard.Layouts.Services;
 using Orchard.Tokens;
 using River.DynamicForms.Elements;
 using DescribeContext = Orchard.Forms.Services.DescribeContext;
@@ -14,7 +15,8 @@ namespace River.DynamicForms.Drivers
     {
         private readonly ITokenizer _tokenizer;
 
-        public FileFieldElementDriver(IFormManager formManager, ITokenizer tokenizer) : base(formManager) {
+        public FileFieldElementDriver(IFormsBasedElementServices formsBasedElementServices, ITokenizer tokenizer) : base(formsBasedElementServices)
+        {
             _tokenizer = tokenizer;
         }
 
@@ -91,7 +93,7 @@ namespace River.DynamicForms.Drivers
             });
         }
 
-        protected override void OnDisplaying(FileField element, ElementDisplayContext context)
+        protected override void OnDisplaying(FileField element, ElementDisplayingContext context)
         {
             context.ElementShape.ProcessedName = _tokenizer.Replace(element.Name, context.GetTokenData());
             context.ElementShape.ProcessedLabel = _tokenizer.Replace(element.Label, context.GetTokenData());
